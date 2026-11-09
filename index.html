@@ -1513,9 +1513,10 @@ body{font-family:'Archivo',sans-serif}
   <main class="hhgrid page" id="pageData" data-page="data">
     <section class="panel" id="importPanel">
       <div class="ptitle">Import des mains <span class="sub">.txt · glisser-déposer · coller</span><span class="sp"></span><span class="infotip" tabindex="0" title="Formats lus : historiques texte GGPoker / Natural8 (Spin&amp;Gold, héros « Hero ») et historiques texte style PokerStars. Les mains où votre pseudo n'apparaît pas sont ignorées." aria-label="Formats lus : historiques texte GGPoker / Natural8 (Spin&amp;Gold, héros « Hero ») et historiques texte style PokerStars. Les mains où votre pseudo n'apparaît pas sont ignorées.">ⓘ format</span></div>
-      <div class="drop" id="drop">Glissez ici un ou plusieurs fichiers <b>.txt</b> d'historique de mains<br><span style="font-size:max(var(--fsmin,12.5px), calc(12px * var(--fsk,1)))">(lecture locale : rien n'est envoyé sur Internet)</span></div>
+      <div class="drop" id="drop">Glissez ici un ou plusieurs fichiers <b>.txt</b> d'historique de mains, ou un <b>dossier</b> entier (sous-dossiers compris)<br><span style="font-size:max(var(--fsmin,12.5px), calc(12px * var(--fsk,1)))">(lecture locale : rien n'est envoyé sur Internet)</span></div>
       <div class="irow">
         <label class="btn sm" for="fileIn">📂 Fichiers .txt</label><input type="file" id="fileIn" accept=".txt,text/plain" multiple hidden>
+        <label class="btn sm" for="dirIn" title="Choisissez un dossier : tous les .txt du dossier et de ses sous-dossiers sont importés. Les mains déjà en base sont ignorées.">📁 Dossier</label><input type="file" id="dirIn" webkitdirectory directory multiple hidden>
         <button class="btn sm" id="btnPaste">📋 Coller du texte</button>
         <button class="btn sm" id="btnDemo" title="Mains inventées pour tester l'outil">🧪 Exemple fictif</button>
         <button class="btn sm" id="btnClear" title="Efface seulement l'affichage / l'analyse en cours. La base du navigateur et vos fichiers .txt restent intacts.">✕ Vider la vue</button>
@@ -2063,18 +2064,39 @@ function ingest(items,opts={}){ const now=Date.now(), fresh=[], seen=new Set(); 
     P.hands.forEach(h=>{ read++; const k=opts.demo?'demo:'+keyOf(h):keyOf(h); A.sessionKeys.add(k);
       if(seen.has(k)){ dupBatch++; return; } seen.add(k); if(A.recs.has(k)){ dupBase++; return; }
       const r=attach({k,id:h.id,file:name,importedAt:now,fmt:P.format?P.format.label:'—',raw:h.raw},h,opts.demo); A.recs.set(k,r); if(!opts.demo) fresh.push(r); }); });
-  A.lastImport={files:nf,read,n:fresh.length,dup:dupBase+dupBatch,dupBase,dupBatch,demo:!!opts.demo};
+  A.lastImport={files:nf,read,n:fresh.length,dup:dupBase+dupBatch,dupBase,dupBatch,demo:!!opts.demo,skipped:opts.skipped||0};
   const done=DB.put(fresh.map(dbRow)).then(renderBase); reanalyse(); if(fresh.length+dupBase+dupBatch>0||opts.demo) setPage('session'); importToast(A.lastImport); return done; }
 const afterDb=f=>(A.dbReady||Promise.resolve()).then(f);
 function addText(text,name,demo){ return afterDb(()=>ingest([{text,name}],{demo})); }
-function readFiles(list){ const fs_=[...list]; if(!fs_.length) return Promise.resolve();
-  return Promise.all([Promise.all(fs_.map(f=>f.text())),A.dbReady]).then(([tx])=>ingest(fs_.map((f,i)=>({text:tx[i],name:f.name})))); }
+function readFiles(list,opts={}){ const fs_=[...list]; if(!fs_.length) return Promise.resolve();
+  return Promise.all([Promise.all(fs_.map(f=>f.text())),A.dbReady]).then(([tx])=>ingest(fs_.map((f,i)=>({text:tx[i],name:f._rel||f.webkitRelativePath||f.name})),opts)); }
+/* DOSSIERS (09/11) : bouton « 📁 Dossier » (webkitdirectory) et glisser-déposer d'un dossier (webkitGetAsEntry, parcours récursif).
+   Seuls les .txt sont lus ; les autres fichiers sont ignorés (comptés). Le dédoublonnage par n° de main s'applique comme d'habitude. */
+const isTxt=f=>/\.txt$/i.test(f.name||'');
+function readDirFiles(list,extraSkipped=0){ const all=[...list], txt=all.filter(isTxt), skipped=all.length-txt.length+extraSkipped;
+  if(!txt.length){ A.lastImport={files:0,read:0,n:0,dup:0,dupBase:0,dupBatch:0,skipped}; importToast(A.lastImport); return Promise.resolve(); }
+  return readFiles(txt,{skipped}); }
+function walkEntry(en,path,out){ if(!en) return Promise.resolve();
+  if(en.isFile) return new Promise(res=>en.file(f=>{ try{ f._rel=path+f.name; }catch(e){} out.push(f); res(); },()=>res()));
+  if(!en.isDirectory) return Promise.resolve();
+  const rd=en.createReader(), kids=[];
+  const batch=()=>new Promise(res=>rd.readEntries(es=>res(es),()=>res([])));
+  const loop=()=>batch().then(es=>{ if(!es.length) return; kids.push(...es); return loop(); });
+  return loop().then(()=>kids.reduce((p,k)=>p.then(()=>walkEntry(k,path+en.name+'/',out)),Promise.resolve())); }
+function onDrop(e){ const dt=e.dataTransfer; if(!dt) return;
+  const items=dt.items?[...dt.items].filter(i=>i.kind==='file'):[], ents=items.map(i=>i.webkitGetAsEntry?i.webkitGetAsEntry():null);
+  if(!ents.some(en=>en&&en.isDirectory)) return readFiles(dt.files); // fichiers seuls : comportement inchangé
+  const loose=[], inDir=[]; let chain=Promise.resolve();
+  ents.forEach((en,i)=>{ if(en&&en.isDirectory) chain=chain.then(()=>walkEntry(en,'',inDir)); else if(en&&en.isFile) chain=chain.then(()=>new Promise(r=>en.file(f=>{ loose.push(f); r(); },()=>r()))); });
+  return chain.then(()=>{ const txt=inDir.filter(isTxt), skipped=inDir.length-txt.length; const files=[...loose,...txt];
+    if(!files.length){ A.lastImport={files:0,read:0,n:0,dup:0,dupBase:0,dupBatch:0,skipped}; importToast(A.lastImport); return; }
+    return readFiles(files,{skipped}); }); }
 /* résumé d'import en français, aussi affiché en bandeau (la page bascule sur SESSION après l'import) */
 function importText(L){ if(!L) return ''; const s=(n,a,b)=>n+' '+(n>1?b:a);
   const det=L.dup?` (${[L.dupBase?s(L.dupBase,'déjà en base','déjà en base'):'',L.dupBatch?s(L.dupBatch,'en double dans les fichiers importés','en double dans les fichiers importés'):''].filter(Boolean).join(' · ')})`:'';
   return `${s(L.n,'main importée','mains importées')}, ${s(L.dup,'doublon ignoré','doublons ignorés')}${det}`; }
 let _toastT=0;
-function importToast(L){ const t=$('#impToast'); if(!t||!L||L.demo) return; t.innerHTML=`<b>${L.dup?'⚠':'✅'} Import</b> : ${esc(importText(L))}${L.files?` · ${L.files} fichier${L.files>1?'s':''}`:''}<span class="x" aria-hidden="true">✕</span>`;
+function importToast(L){ const t=$('#impToast'); if(!t||!L||L.demo) return; t.innerHTML=`<b>${L.dup?'⚠':'✅'} Import</b> : ${esc(importText(L))}${L.files?` · ${L.files} fichier${L.files>1?'s':''} lu${L.files>1?'s':''}`:(L.skipped?' · aucun fichier .txt':'')}${L.skipped?` · ${L.skipped} fichier${L.skipped>1?'s':''} non .txt ignoré${L.skipped>1?'s':''}`:''}<span class="x" aria-hidden="true">✕</span>`;
   t.classList.toggle('dup',!!L.dup); t.hidden=false; clearTimeout(_toastT); _toastT=setTimeout(()=>{ t.hidden=true; },9000); }
 /* sauvegarde : .json exporté par « Exporter la base » ou .txt (texte brut des mains) */
 function importBackup(list){ const fl=[...list]; /* copie immédiate : l'input est vidé juste après l'appel */ return Promise.all([A.dbReady]).then(()=>Promise.all(fl.map(f=>f.text().then(t=>({t,name:f.name})))).then(arr=>{ const txt=[], rows=[];
@@ -2142,7 +2164,7 @@ function renderImportInfo(){
     +`<button class="btn sm" id="filesToggle" type="button" aria-expanded="${A.showFiles?'true':'false'}" aria-controls="filesList">${A.showFiles?'▾ Masquer':'▸ Voir les fichiers'}</button></div>`;
   const who=A.target||hn; if(who) html+=`<div class="fhero">${A.target?'Analyse de':'Héros'} : <b>${esc(who)}</b>${noHero?` · <span class="warn">${noHero} main${noHero>1?'s':''} sans ${A.target?'ce joueur':'le héros'} ignorée${noHero>1?'s':''}</span>`:''}</div>`;
   html+=`<div class="flist" id="filesList"${A.showFiles?'':' hidden'}>`+A.files.map(f=>`<div class="frow" title="${esc(f.name)} · format : ${esc(f.format)}"><span class="fn">${esc(f.name)}</span><span class="fc">${f.n}</span></div>`).join('')+`</div>`;
-  const L=A.lastImport; if(L&&!L.demo) html+=`<div class="fhero" id="lastImp">Dernier import${L.backup?' (sauvegarde)':''} : ${L.files} fichier${L.files>1?'s':''} · ${L.read!=null?L.read+' main'+(L.read>1?'s':'')+' lue'+(L.read>1?'s':'')+' · ':''}<b>${esc(importText(L))}</b></div>`;
+  const L=A.lastImport; if(L&&!L.demo) html+=`<div class="fhero" id="lastImp">Dernier import${L.backup?' (sauvegarde)':''} : ${L.files} fichier${L.files>1?'s':''} lu${L.files>1?'s':''}${L.skipped?` (${L.skipped} non .txt ignoré${L.skipped>1?'s':''})`:''} · ${L.read!=null?L.read+' main'+(L.read>1?'s':'')+' lue'+(L.read>1?'s':'')+' · ':''}<b>${esc(importText(L))}</b></div>`;
   html+=errBlock();
   box.innerHTML=html; }
 
@@ -2450,6 +2472,7 @@ function renderHorsProg(S){ const b=$('#horsProg'); if(!b) return; const E=Objec
   $('#pageTabs').addEventListener('click',e=>{ const b=e.target.closest('button[data-page]'); if(b){ setPage(b.dataset.page); scrollTo(0,0); } }); setPage(A.page);
   setFs(store.get('fs',1.2)); $('#fsDown').onclick=()=>setFs(FS_STEPS[Math.max(0,FS_STEPS.indexOf(A.fs)-1)]); $('#fsUp').onclick=()=>setFs(FS_STEPS[Math.min(FS_STEPS.length-1,FS_STEPS.indexOf(A.fs)+1)]);
   $('#fileIn').onchange=e=>{ readFiles(e.target.files); e.target.value=''; };
+  $('#dirIn').onchange=e=>{ readDirFiles(e.target.files); e.target.value=''; };
   $('#bakIn').onchange=e=>{ importBackup(e.target.files); e.target.value=''; };
   $('#btnExpJson').onclick=()=>exportBase('json'); $('#btnExpTxt').onclick=()=>exportBase('txt'); $('#btnDelBase').onclick=deleteBase;
   $('#btnShowBase').onclick=()=>{ A.viewMode='base'; reanalyse(); renderBase(); };
@@ -2462,7 +2485,7 @@ function renderHorsProg(S){ const b=$('#horsProg'); if(!b) return; const E=Objec
     A.dbLoaded=true; reanalyse(); renderBase(); if(P&&(P.removed||P.failed)) baseMsg(dedupeMsg(P,true),P.failed); }).catch(e=>{ console.warn('base',e); A.dbLoaded=true; reanalyse(); renderBase(); });
   const dz=$('#drop'); ['dragenter','dragover'].forEach(t=>dz.addEventListener(t,e=>{ e.preventDefault(); dz.classList.add('over'); }));
   ['dragleave','drop'].forEach(t=>dz.addEventListener(t,e=>{ e.preventDefault(); dz.classList.remove('over'); }));
-  dz.addEventListener('drop',e=>readFiles(e.dataTransfer.files));
+  dz.addEventListener('drop',onDrop);
   addEventListener('dragover',e=>e.preventDefault()); addEventListener('drop',e=>e.preventDefault());
   $('#btnPaste').onclick=()=>{ $('#paste').classList.toggle('open'); $('#btnPasteGo').style.display=$('#paste').classList.contains('open')?'':'none'; };
   $('#btnPasteGo').onclick=()=>{ const t=$('#paste').value; if(t.trim()) addText(t,'Texte collé '+(A.files.length+1)); $('#paste').value=''; };
