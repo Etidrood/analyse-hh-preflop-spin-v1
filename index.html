@@ -1526,13 +1526,6 @@ body{font-family:'Archivo',sans-serif}
       <div class="irow"><label class="lbl" for="heroSel" style="font-family:Orbitron;font-size:max(var(--fsmin,12.5px), calc(9px * var(--fsk,1)));letter-spacing:.18em;color:var(--muted)">ANALYSER</label><select id="heroSel" title="Joueurs présents dans l'import, triés par nombre de mains. Ne modifie pas « Mon pseudo »."></select><input type="text" id="heroFree" list="plDl" autocomplete="off" placeholder="ou pseudo libre ↵" title="Pseudo d'un autre joueur (préfixe, insensible à la casse), validé par Entrée"><button class="btn sm" id="btnMe" type="button" hidden>↺ Revenir à moi</button><datalist id="plDl"></datalist></div>
       <div class="iinfo" id="importInfo"></div>
     </section>
-    <section class="panel span3" id="trainerSettings">
-      <div class="ptitle">⚙ Chemin du trainer</div>
-      <label for="trainerPath">Chemin du trainer</label>
-      <div class="irow" style="flex-wrap:wrap"><input id="trainerPath" type="text" style="flex:1;min-width:180px" placeholder="C:\…\Trainer Spin Preflop.html" spellcheck="false"><button class="btn sm" id="trainerPathSave" type="button">Enregistrer</button><button class="btn sm" id="trainerPathTest" type="button">Tester</button></div>
-      <div class="hint">Windows : Maj (Shift) + clic droit sur le fichier du trainer → « Copier en tant que chemin d'accès », puis collez ici (guillemets acceptés). Chemin mémorisé dans ce navigateur. Vide = trainer en ligne « trainer.html » (même site que cet outil).</div>
-      <div class="hint" id="trainerPathMsg" role="status" aria-live="polite"></div>
-    </section>
     <section class="panel span2" id="basePanel">
       <div class="ptitle">Base de mains <span class="sub">stockée dans ce navigateur · cumul des imports · 1 main = 1 n° de main (doublons bloqués à l'import et nettoyés à l'ouverture)</span></div>
       <div class="iinfo" id="baseInfo"></div>
@@ -2234,31 +2227,8 @@ function reviewGroup(t,lab,st){ return reviewKeys(groupKeys(t,lab,st),{f:'grp',d
 /* ---------- 🎯 spot à travailler : UN SEUL spot = spot × profondeur de chart (héros + période de la vue) ----------
    Max de déviations (nombre absolu) ; égalité → taux d'erreur (dév. / décisions) le plus haut. Décisions = nœuds notés (conforme/variable/déviation).
    Drill : lien direct du trainer « #drill?spot=<id sans _bb>&stack=<bb> » (dlApply / dlStem du trainer, section LIENS DIRECTS). Le trainer n'est pas modifié. */
-const TRAINER_REL='trainer.html'; // par défaut : trainer.html à côté de cet outil (en ligne : même site)
-// Chemin local configurable ; aucun accès au fichier ni envoi réseau.
-function normalizeTrainerPath(value){
-  let s=String(value||'').trim();
-  if(s.length>=2 && ((s[0]==='"'&&s.at(-1)==='"')||(s[0]==="'"&&s.at(-1)==="'"))) s=s.slice(1,-1).trim();
-  if(!s) return '';
-  s=s.replace(/\\/g,'/');
-  if(/^[a-z]:\//i.test(s)) s='file:///'+s;
-  else if(s.startsWith('//')) s='file:'+s;
-  else if(s.startsWith('/')) s='file://'+s;
-  if(!/^file:\/\//i.test(s)) throw new Error('Collez un chemin absolu Windows ou une URL file:/// du trainer.');
-  const u=new URL(s); if(u.protocol!=='file:') throw new Error('Le chemin doit désigner un fichier local.');
-  u.hash=''; u.search=''; return u.href;
-}
-function trainerBase(){ return store.get('trainerPath','')||encodeURI(TRAINER_REL); }
-function trainerHref(hash=''){ return trainerBase()+hash; }
-function showTrainerSettings(){ setPage('data'); const e=$('#trainerPath'); e.scrollIntoView({block:'center',behavior:'smooth'}); e.focus(); }
-function initTrainerSettings(){
-  const field=$('#trainerPath'), msg=$('#trainerPathMsg'); field.value=store.get('trainerPath','');
-  function save(){ try{ const v=normalizeTrainerPath(field.value); store.set('trainerPath',v); field.value=v; msg.textContent=v?'Chemin enregistré sur ce navigateur.':'Chemin effacé : lien relatif par défaut utilisé.'; renderWorkSpot(); return true; }catch(e){ msg.textContent=e.message; return false; } }
-  field.onchange=save;
-  field.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();save();}};
-  $('#trainerPathSave').onclick=save;
-  $('#trainerPathTest').onclick=()=>{if(save()) window.open(trainerHref(),'_blank','noopener');};
-}
+const TRAINER_REL='trainer.html'; // fixe : trainer.html à côté de cet outil (en ligne : même site)
+function trainerHref(hash=''){ return encodeURI(TRAINER_REL)+hash; }
 const SCORED=['conforme','variable','deviation'];
 const nodeRangeKey=N=>N.spotKey||N.regKey;
 function nodeRangeLabel(N){ return 'Standard'; }
@@ -2279,9 +2249,7 @@ function renderWorkSpot(){ const B=$('#workSpot'), g=A.ws=workSpot();
   B.innerHTML=`<div class="ws-h">🎯 Spot à travailler <span class="ws-why">le plus de déviations · ${A.target?esc(A.target):'héros'} · ${esc(PERIODS[A.period.p]||'')}</span></div>
     <div class="ws-n" id="wsName">${esc(g.family)} · <b>${g.bb} bb</b> <span class="sub">${esc(g.rangeLabel)}</span></div>
     <div class="ws-k"><span><b class="ko" id="wsDev">${g.dev}</b> déviation${g.dev>1?'s':''}</span><span><b id="wsN">${g.n}</b> décision${g.n>1?'s':''}</span><span>conformité <b class="${accCls(g.conf)}" id="wsConf">${g.conf}%</b></span></div>
-    <div class="ws-b">${g.hash?`<a class="btn sm ws-drill" id="wsDrill" href="${esc(trainerHref(g.hash))}" target="_blank" rel="noopener" title="Ouvre le trainer sur ce spot : ${esc(g.hash)}">▶ Drill dans le trainer</a>`:`<span class="btn sm ws-drill" id="wsDrill" aria-disabled="true" style="opacity:.4;cursor:not-allowed" title="Ce spot n'est pas disponible dans le trainer">▶ Drill indisponible</span>`}<button class="btn sm" id="wsTrainerSettings" title="Chemin du trainer">⚙ Chemin</button><span id="trainerLinkHint" class="hint" hidden></span><button class="btn sm ws-rev" id="wsRev" type="button">Revoir ces déviations (${g.dev})</button></div>`;
-  $('#wsTrainerSettings').onclick=showTrainerSettings;
-  if(g.hash) $('#wsDrill').onclick=()=>{if(!store.get('trainerPath','')&&location.protocol==='file:'){ const hint=$('#trainerLinkHint'); hint.hidden=false; hint.textContent='Fichier introuvable ? Réglez le chemin via ⚙ Chemin (DATA).'; }};
+    <div class="ws-b">${g.hash?`<a class="btn sm ws-drill" id="wsDrill" href="${esc(trainerHref(g.hash))}" target="_blank" rel="noopener" title="Ouvre le trainer sur ce spot : ${esc(g.hash)}">▶ Drill dans le trainer</a>`:`<span class="btn sm ws-drill" id="wsDrill" aria-disabled="true" style="opacity:.4;cursor:not-allowed" title="Ce spot n'est pas disponible dans le trainer">▶ Drill indisponible</span>`}<button class="btn sm ws-rev" id="wsRev" type="button">Revoir ces déviations (${g.dev})</button></div>`;
   $('#wsRev').onclick=reviewWorkSpot; }
 function reviewWorkSpot(){ const g=A.ws; if(!g||!g.devKeys.length) return; const i=A.view.findIndex(r=>r.k===g.devKeys[0]); if(i<0) return;
   reviewKeys(g.devKeys.filter((k,j,a)=>a.indexOf(k)===j),{f:'spot',lbl:'🎯 '+g.family+' · '+g.bb+' bb · '+g.rangeLabel}); }
@@ -2467,7 +2435,6 @@ function renderHorsProg(S){ const b=$('#horsProg'); if(!b) return; const E=Objec
 
 /* ---------- init ---------- */
 (function init(){
-  initTrainerSettings();
   const st=$('#stars'); for(let i=0;i<140;i++){ const s=document.createElement('i'); s.style.left=Math.random()*100+'%'; s.style.top=Math.random()*100+'%'; s.style.setProperty('--d',(2+Math.random()*5)+'s'); s.style.setProperty('--dl',(Math.random()*5)+'s'); s.style.setProperty('--o',(.3+Math.random()*.6).toFixed(2)); st.appendChild(s); }
   const clk=()=>{ const d=new Date(); $('#hudClock').textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }; clk(); setInterval(clk,15000);
   $('#heroName').value=store.get('heroPseudo',''); // vide = détection automatique (ligne « Dealt to » avec cartes, « Hero » sur GGPoker)
