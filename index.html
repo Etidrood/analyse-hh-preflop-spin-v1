@@ -1530,7 +1530,7 @@ body{font-family:'Archivo',sans-serif}
       <div class="ptitle">⚙ Chemin du trainer</div>
       <label for="trainerPath">Chemin du trainer</label>
       <div class="irow" style="flex-wrap:wrap"><input id="trainerPath" type="text" style="flex:1;min-width:180px" placeholder="C:\…\Trainer Spin Preflop.html" spellcheck="false"><button class="btn sm" id="trainerPathSave" type="button">Enregistrer</button><button class="btn sm" id="trainerPathTest" type="button">Tester</button></div>
-      <div class="hint">Windows : Maj (Shift) + clic droit sur le fichier du trainer → « Copier en tant que chemin d'accès », puis collez ici (guillemets acceptés). Chemin mémorisé dans ce navigateur. Vide = trainer « Trainer Spin Preflop.html » placé dans le même dossier que cet outil.</div>
+      <div class="hint">Windows : Maj (Shift) + clic droit sur le fichier du trainer → « Copier en tant que chemin d'accès », puis collez ici (guillemets acceptés). Chemin mémorisé dans ce navigateur. Vide = trainer en ligne « trainer.html » (même site que cet outil).</div>
       <div class="hint" id="trainerPathMsg" role="status" aria-live="polite"></div>
     </section>
     <section class="panel span2" id="basePanel">
@@ -2234,7 +2234,7 @@ function reviewGroup(t,lab,st){ return reviewKeys(groupKeys(t,lab,st),{f:'grp',d
 /* ---------- 🎯 spot à travailler : UN SEUL spot = spot × profondeur de chart (héros + période de la vue) ----------
    Max de déviations (nombre absolu) ; égalité → taux d'erreur (dév. / décisions) le plus haut. Décisions = nœuds notés (conforme/variable/déviation).
    Drill : lien direct du trainer « #drill?spot=<id sans _bb>&stack=<bb> » (dlApply / dlStem du trainer, section LIENS DIRECTS). Le trainer n'est pas modifié. */
-const TRAINER_REL='Trainer Spin Preflop.html'; // par défaut : trainer dans le même dossier que cet outil
+const TRAINER_REL='trainer.html'; // par défaut : trainer.html à côté de cet outil (en ligne : même site)
 // Chemin local configurable ; aucun accès au fichier ni envoi réseau.
 function normalizeTrainerPath(value){
   let s=String(value||'').trim();
@@ -2281,7 +2281,7 @@ function renderWorkSpot(){ const B=$('#workSpot'), g=A.ws=workSpot();
     <div class="ws-k"><span><b class="ko" id="wsDev">${g.dev}</b> déviation${g.dev>1?'s':''}</span><span><b id="wsN">${g.n}</b> décision${g.n>1?'s':''}</span><span>conformité <b class="${accCls(g.conf)}" id="wsConf">${g.conf}%</b></span></div>
     <div class="ws-b">${g.hash?`<a class="btn sm ws-drill" id="wsDrill" href="${esc(trainerHref(g.hash))}" target="_blank" rel="noopener" title="Ouvre le trainer sur ce spot : ${esc(g.hash)}">▶ Drill dans le trainer</a>`:`<span class="btn sm ws-drill" id="wsDrill" aria-disabled="true" style="opacity:.4;cursor:not-allowed" title="Ce spot n'est pas disponible dans le trainer">▶ Drill indisponible</span>`}<button class="btn sm" id="wsTrainerSettings" title="Chemin du trainer">⚙ Chemin</button><span id="trainerLinkHint" class="hint" hidden></span><button class="btn sm ws-rev" id="wsRev" type="button">Revoir ces déviations (${g.dev})</button></div>`;
   $('#wsTrainerSettings').onclick=showTrainerSettings;
-  if(g.hash) $('#wsDrill').onclick=()=>{if(!store.get('trainerPath','')){ const hint=$('#trainerLinkHint'); hint.hidden=false; hint.textContent='Fichier introuvable ? Réglez le chemin via ⚙ Chemin (DATA).'; }};
+  if(g.hash) $('#wsDrill').onclick=()=>{if(!store.get('trainerPath','')&&location.protocol==='file:'){ const hint=$('#trainerLinkHint'); hint.hidden=false; hint.textContent='Fichier introuvable ? Réglez le chemin via ⚙ Chemin (DATA).'; }};
   $('#wsRev').onclick=reviewWorkSpot; }
 function reviewWorkSpot(){ const g=A.ws; if(!g||!g.devKeys.length) return; const i=A.view.findIndex(r=>r.k===g.devKeys[0]); if(i<0) return;
   reviewKeys(g.devKeys.filter((k,j,a)=>a.indexOf(k)===j),{f:'spot',lbl:'🎯 '+g.family+' · '+g.bb+' bb · '+g.rangeLabel}); }
